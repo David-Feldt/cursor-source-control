@@ -3,6 +3,7 @@ import * as path from 'path';
 import { GitService } from './gitService';
 import { ChangeCategory, FileChange, FileStatus } from './types';
 import { getFileIconName, getFolderIconName } from './iconMap';
+import { summarizeChanges } from './geminiService';
 
 interface FolderGroup {
   folderPath: string;
@@ -48,12 +49,60 @@ export class SourceControlWebviewProvider
 
     webviewView.webview.html = this.getHtml(webviewView.webview);
 
-    webviewView.webview.onDidReceiveMessage((message) => {
+    webviewView.webview.onDidReceiveMessage(async (message) => {
       if (message.command === 'openDiff') {
         const change: FileChange = message.change;
         vscode.commands.executeCommand('sourceControlPanel.openDiff', change);
+      } else if (message.command === 'generateSummary') {
+        await this.handleGenerateSummary();
       }
     });
+  }
+
+  private async handleGenerateSummary(): Promise<void> {
+    if (!this._view || !this.gitService) {
+      return;
+    }
+
+    const apiKey = vscode.workspace
+      .getConfiguration('sourceControlPanel')
+      .get<string>('geminiApiKey', '');
+
+    if (!apiKey) {
+      this._view.webview.postMessage({
+        command: 'summaryResult',
+        error:
+          'No API key configured. Set it in Settings → Source Control Panel → Gemini Api Key',
+      });
+      return;
+    }
+
+    this._view.webview.postMessage({
+      command: 'summaryLoading',
+    });
+
+    try {
+      const diffText = this.gitService.getDiffText();
+      if (!diffText.trim()) {
+        this._view.webview.postMessage({
+          command: 'summaryResult',
+          summary: 'No changes to summarize.',
+        });
+        return;
+      }
+
+      const summary = await summarizeChanges(apiKey, diffText);
+      this._view.webview.postMessage({
+        command: 'summaryResult',
+        summary,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      this._view.webview.postMessage({
+        command: 'summaryResult',
+        error: `Failed to generate summary: ${msg}`,
+      });
+    }
   }
 
   private iconUri(webview: vscode.Webview, iconName: string): string {
@@ -95,6 +144,8 @@ export class SourceControlWebviewProvider
       sectionsHtml = '<div class="empty">No changes detected</div>';
     }
 
+    const hasChanges = changes.length > 0;
+
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -109,6 +160,90 @@ export class SourceControlWebviewProvider
       color: var(--vscode-foreground);
       background: transparent;
     }
+
+    /* Summary panel */
+    .summary-panel {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    }
+    .summary-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      padding: 5px 10px;
+      border: none;
+      border-radius: 3px;
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      font-family: var(--vscode-font-family);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .summary-btn:hover {
+      background: var(--vscode-button-hoverBackground);
+    }
+    .summary-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .summary-btn .sparkle {
+      font-size: 14px;
+    }
+    .summary-content {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: var(--vscode-textBlockQuote-background, rgba(255,255,255,0.04));
+      border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
+      border-radius: 2px;
+      font-size: 12px;
+      line-height: 1.7;
+      display: none;
+    }
+    .summary-content .tag-add {
+      color: #4ec94e;
+      font-weight: 600;
+    }
+    .summary-content .tag-del {
+      color: #f14c4c;
+      font-weight: 600;
+    }
+    .summary-content .tag-mod {
+      color: #e2c08d;
+      font-weight: 600;
+    }
+    .summary-content .bullet {
+      margin: 2px 0;
+    }
+    .summary-content.visible {
+      display: block;
+    }
+    .summary-content.error {
+      border-left-color: #f14c4c;
+      color: var(--vscode-errorForeground, #f14c4c);
+    }
+    .summary-loading {
+      display: none;
+      margin-top: 8px;
+      text-align: center;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+    .summary-loading.visible {
+      display: block;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 1; }
+    }
+    .dot-pulse span {
+      animation: pulse 1.2s infinite;
+    }
+    .dot-pulse span:nth-child(2) { animation-delay: 0.2s; }
+    .dot-pulse span:nth-child(3) { animation-delay: 0.4s; }
+
+    /* Sections */
     .section-header {
       display: flex;
       align-items: center;
@@ -236,9 +371,68 @@ export class SourceControlWebviewProvider
   </style>
 </head>
 <body>
+  ${hasChanges ? `
+  <div class="summary-panel">
+    <button class="summary-btn" id="summaryBtn">
+      <span class="sparkle">&#10024;</span> Summarize Changes
+    </button>
+    <div class="summary-loading" id="summaryLoading">
+      <span class="dot-pulse"><span>.</span><span>.</span><span>.</span></span> Generating summary
+    </div>
+    <div class="summary-content" id="summaryContent"></div>
+  </div>
+  ` : ''}
   ${sectionsHtml}
   <script>
     const vscode = acquireVsCodeApi();
+
+    const summaryBtn = document.getElementById('summaryBtn');
+    const summaryLoading = document.getElementById('summaryLoading');
+    const summaryContent = document.getElementById('summaryContent');
+
+    if (summaryBtn) {
+      summaryBtn.addEventListener('click', () => {
+        summaryBtn.disabled = true;
+        vscode.postMessage({ command: 'generateSummary' });
+      });
+    }
+
+    function formatSummary(text) {
+      const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      const withTags = escaped
+        .replace(/&lt;add&gt;(.*?)&lt;\\/add&gt;/g, '<span class="tag-add">$1</span>')
+        .replace(/&lt;del&gt;(.*?)&lt;\\/del&gt;/g, '<span class="tag-del">$1</span>')
+        .replace(/&lt;mod&gt;(.*?)&lt;\\/mod&gt;/g, '<span class="tag-mod">$1</span>');
+      const lines = withTags.split('\\n').filter(l => l.trim());
+      return lines.map(l => '<div class="bullet">' + l + '</div>').join('');
+    }
+
+    window.addEventListener('message', event => {
+      const message = event.data;
+      if (message.command === 'summaryLoading') {
+        if (summaryLoading) summaryLoading.classList.add('visible');
+        if (summaryContent) {
+          summaryContent.classList.remove('visible');
+          summaryContent.classList.remove('error');
+        }
+      } else if (message.command === 'summaryResult') {
+        if (summaryLoading) summaryLoading.classList.remove('visible');
+        if (summaryBtn) summaryBtn.disabled = false;
+        if (summaryContent) {
+          if (message.error) {
+            summaryContent.textContent = message.error;
+            summaryContent.classList.add('error');
+          } else {
+            summaryContent.innerHTML = formatSummary(message.summary);
+            summaryContent.classList.remove('error');
+          }
+          summaryContent.classList.add('visible');
+        }
+      }
+    });
 
     document.querySelectorAll('.section-header').forEach(header => {
       header.addEventListener('click', () => {

@@ -40,6 +40,17 @@
         "icon": "$(refresh)"
       }
     ],
+    "configuration": {
+      "title": "Source Control Panel",
+      "properties": {
+        "sourceControlPanel.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Google Gemini API key for AI-powered change summaries. Get one at https://aistudio.google.com/app/apikey",
+          "order": 1
+        }
+      }
+    },
     "menus": {
       "view/title": [
         {

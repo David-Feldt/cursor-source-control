@@ -128,6 +128,33 @@ export class GitService {
     return map;
   }
 
+  getDiffText(): string {
+    const staged = this.exec('git diff --cached');
+    const unstaged = this.exec('git diff');
+    const untrackedFiles = this.exec(
+      'git ls-files --others --exclude-standard'
+    );
+
+    let result = '';
+    if (staged.trim()) {
+      result += '=== STAGED CHANGES ===\n' + staged + '\n';
+    }
+    if (unstaged.trim()) {
+      result += '=== UNSTAGED CHANGES ===\n' + unstaged + '\n';
+    }
+    if (untrackedFiles.trim()) {
+      result +=
+        '=== UNTRACKED FILES ===\n' +
+        untrackedFiles
+          .trim()
+          .split('\n')
+          .map((f) => `New file: ${f}`)
+          .join('\n') +
+        '\n';
+    }
+    return result;
+  }
+
   private countFileLines(filePath: string): number {
     try {
       const fullPath = path.join(this.workspacePath, filePath);
