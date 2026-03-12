@@ -1,0 +1,66 @@
+{
+  "name": "cursor-source-control",
+  "displayName": "Source Control Panel",
+  "description": "Enhanced source control panel showing +/- line stats and parent folder context for changed files",
+  "version": "0.1.0",
+  "publisher": "david",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sourceControlPanelContainer",
+          "title": "Source Control Panel",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "sourceControlPanelContainer": [
+        {
+          "id": "sourceControlPanel",
+          "name": "Changes",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "sourceControlPanel.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sourceControlPanel.refresh",
+          "when": "view == sourceControlPanel",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "material-icon-theme": "^5.32.0"
+  }
+}
