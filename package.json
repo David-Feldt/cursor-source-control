@@ -1,9 +1,18 @@
 {
   "name": "cursor-source-control",
   "displayName": "Source Control Panel",
-  "description": "Enhanced source control panel showing +/- line stats and parent folder context for changed files",
+  "description": "Enhanced source control panel showing +/- line stats, parent folder grouping, Material icons, and AI-powered change summaries",
   "version": "0.1.0",
   "publisher": "david",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/cursor-source-control.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/cursor-source-control/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/cursor-source-control#readme",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
